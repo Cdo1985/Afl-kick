@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AFL Goal Kicker</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #2d5a27;
+            color: white;
+            font-family: sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #gameCanvas {
+            background: #3a7d32;
+            display: block;
+            width: 100vw;
+            height: 70vh;
+            border-bottom: 4px solid #1e3d1a;
+        }
+        #ui {
+            width: 100vw;
+            height: 30vh;
+            background: #111;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-evenly;
+            align-items: center;
+            padding-bottom: 10px;
+        }
+        .bar-container {
+            width: 80%;
+            height: 30px;
+            background: #333;
+            border-radius: 15px;
+            position: relative;
+            overflow: hidden;
+            border: 2px solid #555;
+        }
+        #accuracy-cursor {
+            width: 10px;
+            height: 100%;
+            background: yellow;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        #power-fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(to right, orange, red);
+        }
+        .label { font-weight: bold; font-size: 14px; text-transform: uppercase; color: #aaa; }
+        #msg { font-size: 24px; font-weight: bold; color: gold; height: 30px; }
+        #score { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; }
+    </style>
+</head>
+<body onclick="handleTap()">
+
+    <div id="score">Score: 0.0 (0)</div>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui">
+        <div id="msg">TAP TO START</div>
+        
+        <div class="label">Accuracy</div>
+        <div class="bar-container">
+            <div id="accuracy-cursor"></div>
+        </div>
+
+        <div class="label">Power</div>
+        <div class="bar-container">
+            <div id="power-fill"></div>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const accCursor = document.getElementById('accuracy-cursor');
+    const pwrFill = document.getElementById('power-fill');
+    const msgEl = document.getElementById('msg');
+    const scoreEl = document.getElementById('score');
+
+    // Game Constants
+    let goals = 0, behinds = 0;
+    let state = "IDLE"; // IDLE, AIMING, POWER, KICKING, RESULT
+    let accPos = 50; // 0 to 100
+    let accDir = 2;
+    let pwrVal = 0;
+    let pwrDir = 3;
+
+    // Ball/Physics
+    let ball = { x: 0, y: 0, scale: 1, vx: 0, vy: 0, vz: 0, z: 0 };
+    const gravity = 0.25;
+
+    function initCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight * 0.7;
+    }
+    window.addEventListener('resize', initCanvas);
+    initCanvas();
+
+    function handleTap() {
+        if (state === "IDLE" || state === "RESULT") {
+            resetBall();
+            state = "AIMING";
+            msgEl.innerText = "TAP TO AIM";
+        } else if (state === "AIMING") {
+            state = "POWER";
+            msgEl.innerText = "TAP FOR POWER";
+        } else if (state === "POWER") {
+            state = "KICKING";
+            msgEl.innerText = "WATCH IT...";
+            launchBall();
+        }
+    }
+
+    function resetBall() {
+        ball = {
+            x: canvas.width / 2,
+            y: canvas.height - 50,
+            scale: 1,
+            vx: 0,
+            vy: 0,
+            vz: 0,
+            z: 0
+        };
+        accPos = 50;
+        pwrVal = 0;
+    }
+
+    function launchBall() {
+        // Calculate physics based on bars
+        const accuracyOffset = (accPos - 50) / 10; // -5 to 5
+        ball.vx = accuracyOffset;
+        ball.vz = (pwrVal / 10) + 5; // Forward speed
+        ball.vy = - (pwrVal / 15) - 8; // Initial upward pop
+    }
+
+    function update() {
+        if (state === "AIMING") {
+            accPos += accDir;
+            if (accPos > 95 || accPos < 5) accDir *= -1;
+            accCursor.style.left = accPos + "%";
+        } 
+        else if (state === "POWER") {
+            pwrVal += pwrDir;
+            if (pwrVal > 100 || pwrVal < 0) pwrDir *= -1;
+            pwrFill.style.width = pwrVal + "%";
+        }
+        else if (state === "KICKING") {
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+            ball.vy += gravity; // Gravity pull
+            ball.scale = Math.max(0.2, 1 - (ball.z / 1000));
+            ball.z += ball.vz;
+
+            // Check if ball reached the "line" (z distance)
+            if (ball.z > 800) {
+                determineResult();
+            }
+        }
+        draw();
+        requestAnimationFrame(update);
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw Grass Gradient
+        let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        grad.addColorStop(0, "#1e3d1a");
+        grad.addColorStop(1, "#3a7d32");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw Goal Posts
+        const centerX = canvas.width / 2;
+        const horizon = 150;
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 4;
+
+        // Big Posts
+        ctx.beginPath();
+        ctx.moveTo(centerX - 40, horizon); ctx.lineTo(centerX - 40, horizon + 150);
+        ctx.moveTo(centerX + 40, horizon); ctx.lineTo(centerX + 40, horizon + 150);
+        ctx.stroke();
+
+        // Small Posts
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX - 80, horizon + 40); ctx.lineTo(centerX - 80, horizon + 150);
+        ctx.moveTo(centerX + 80, horizon + 40); ctx.lineTo(centerX + 80, horizon + 150);
+        ctx.stroke();
+
+        // Draw Ball
+        ctx.fillStyle = "#8b4513";
+        ctx.beginPath();
+        ctx.ellipse(ball.x, ball.y, 15 * ball.scale, 22 * ball.scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.3)";
+        ctx.stroke();
+    }
+
+    function determineResult() {
+        state = "RESULT";
+        const centerX = canvas.width / 2;
+        const finalX = ball.x;
+
+        if (finalX > centerX - 40 && finalX < centerX + 40) {
+            msgEl.innerText = "GOAL!!";
+            goals++;
+        } else if (finalX > centerX - 80 && finalX < centerX + 80) {
+            msgEl.innerText = "BEHIND";
+            behinds++;
+        } else {
+            msgEl.innerText = "OUT ON THE FULL";
+        }
+        
+        scoreEl.innerText = `Score: ${goals}.${behinds} (${(goals*6)+behinds})`;
+        setTimeout(() => { if(state === "RESULT") msgEl.innerText = "TAP FOR NEXT SHOT"; }, 2000);
+    }
+
+    update();
+</script>
+</body>
+</html>
